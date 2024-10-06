@@ -3,23 +3,19 @@ version: 0.2
 phases:
   install:
     commands:
-      - echo Installing Docker...
+      - echo Installing dependencies...
       - yum update -y
-      - yum install -y docker
-      - service docker start
-
+      
   pre_build:
     commands:
       - echo Logging in to Amazon ECR...
       - aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 975050245649.dkr.ecr.ap-south-1.amazonaws.com
       - REPOSITORY_URI=975050245649.dkr.ecr.ap-south-1.amazonaws.com/lambda-container-repo
-      - echo Changing to lambda_container directory...
       - cd lambda_container
 
   build:
     commands:
       - echo Build started on `date`
-      - echo Building the Docker image...
       - docker build -t lambda-container .
       - docker tag lambda-container:latest $REPOSITORY_URI:latest
 
