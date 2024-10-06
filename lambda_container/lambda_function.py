@@ -11,6 +11,8 @@ s3_client = boto3.client('s3')
 # Suppress warnings from Hugging Face transformers library
 logging.set_verbosity_error()
 
+
+
 # Explicitly initialize the sentiment analysis pipeline with a specific model
 sentiment_pipeline = pipeline("sentiment-analysis", model="distilbert-base-uncased-finetuned-sst-2-english")
 
