@@ -6,7 +6,8 @@ phases:
       - echo Installing Docker...
       - yum update -y
       - yum install -y docker
-      - service docker start
+      - systemctl enable docker
+      - systemctl start docker
       - echo "Installing AWS CLI and jq"
       - yum install -y jq
       - echo "Fetching GitHub Personal Access Token from Secrets Manager"
