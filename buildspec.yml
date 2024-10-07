@@ -6,17 +6,21 @@ phases:
       - echo Installing Docker...
       - yum update -y
       - yum install -y docker
-      - nohup /usr/bin/dockerd > /var/log/dockerd.log 2>&1 &  # Start Docker manually
-      - timeout 15 sh -c "until docker info; do echo .; sleep 1; done"  # Wait until Docker is ready
+      - service docker start
+      - echo "Installing AWS CLI and jq"
+      - yum install -y jq
+      - echo "Fetching GitHub Personal Access Token from Secrets Manager"
+      - export GITHUB_TOKEN=$(aws secretsmanager get-secret-value --secret-id github/personal_access_token --query SecretString --output text | jq -r .GITHUB_TOKEN)
 
   pre_build:
     commands:
       - echo Logging in to Amazon ECR...
       - aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 975050245649.dkr.ecr.ap-south-1.amazonaws.com
-      - REPOSITORY_URI=975050245649.dkr.ecr.ap-south-1.amazonaws.com/lambda-container-repo
-      - echo Downloading the container files from S3...
-      - aws s3 cp s3://stockmarketprodata/lambda-container/ ./lambda-container/ --recursive
-      - cd lambda-container
+      - REPOSITORY_URI=975050245649.dkr.ecr.ap-south-1.amazonaws.com/lambda-container-repo-github/test
+      - echo Authenticating with GitHub using Personal Access Token...
+      - git clone https://$GITHUB_TOKEN@github.com/Syedboo/Stock_prediction.git
+      - echo Changing to lambda_container directory...
+      - cd Stock_prediction/lambda_container
 
   build:
     commands:
