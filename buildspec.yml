@@ -3,19 +3,25 @@ version: 0.2
 phases:
   install:
     commands:
-      - echo Installing dependencies...
+      - echo Installing Docker...
       - yum update -y
-      
+      - yum install -y docker
+      - nohup /usr/bin/dockerd > /var/log/dockerd.log 2>&1 &  # Start Docker manually
+      - timeout 15 sh -c "until docker info; do echo .; sleep 1; done"  # Wait until Docker is ready
+
   pre_build:
     commands:
       - echo Logging in to Amazon ECR...
       - aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 975050245649.dkr.ecr.ap-south-1.amazonaws.com
       - REPOSITORY_URI=975050245649.dkr.ecr.ap-south-1.amazonaws.com/lambda-container-repo
-      - cd lambda_container
+      - echo Downloading the container files from S3...
+      - aws s3 cp s3://stockmarketprodata/lambda-container/ ./lambda-container/ --recursive
+      - cd lambda-container
 
   build:
     commands:
       - echo Build started on `date`
+      - echo Building the Docker image...
       - docker build -t lambda-container .
       - docker tag lambda-container:latest $REPOSITORY_URI:latest
 
