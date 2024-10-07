@@ -6,8 +6,8 @@ phases:
       - echo Installing Docker...
       - yum update -y
       - yum install -y docker
-      - systemctl enable docker
-      - systemctl start docker
+      - dockerd > /var/log/dockerd.log 2>&1 &
+      - timeout 15 sh -c "until docker info; do echo .; sleep 1; done"
       - echo "Installing AWS CLI and jq"
       - yum install -y jq
       - echo "Fetching GitHub Personal Access Token from Secrets Manager"
