@@ -30,6 +30,12 @@ phases:
       - docker build -t lambda-container .
       - docker tag lambda-container:latest $REPOSITORY_URI:latest
 
+artifacts:
+  files:
+    - '**/*'
+  discard-paths: true
+
+
   post_build:
     commands:
       - echo Build completed on `date`
