@@ -85,6 +85,7 @@ def lambda_handler(event, context):
 
         # Part 3: Merge Stock Data with Articles Data
         articles_df = pd.DataFrame(articles)
+        articles_df = articles_df[['actual_date', 'text', 'sentiment_score', 'insights']]  # Select only relevant columns
         articles_df['actual_date'] = pd.to_datetime(articles_df['actual_date'])
 
         # Convert 'Date' in stock_data to datetime format
