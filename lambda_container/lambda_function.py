@@ -85,7 +85,6 @@ def lambda_handler(event, context):
 
         # Part 3: Merge Stock Data with Articles Data
         articles_df = pd.DataFrame(articles)
-        articles_df = articles_df[['actual_date', 'text', 'sentiment_score', 'insights']]  # Select only relevant columns
         articles_df['actual_date'] = pd.to_datetime(articles_df['actual_date'])
 
         # Convert 'Date' in stock_data to datetime format
@@ -110,13 +109,19 @@ def lambda_handler(event, context):
         # Impute remaining null values in sentiment_score with 0.5
         merged_df['sentiment_score'] = merged_df['sentiment_score'].fillna(0.5)
 
+        # Convert 'Date' column to datetime and drop rows where conversion fails
+        merged_df['Date'] = pd.to_datetime(merged_df['Date'], errors='coerce')
+
+        # Drop rows where 'Date' is NaT (invalid dates)
+        merged_filled_forward = merged_df.dropna(subset=['Date'])
+
         # Save the updated dataset with filled missing values to /tmp and upload to S3
         merged_filled_csv_file = '/tmp/merged_stock_articles_data_filled_forward.csv'
-        merged_df.to_csv(merged_filled_csv_file, index=False)
+        merged_filled_forward.to_csv(merged_filled_csv_file, index=False)
         filled_output_key = 'merged_data/merged_stock_articles_data_filled_forward.csv'
         upload_to_s3(merged_filled_csv_file, bucket_name, filled_output_key)
 
-        print(f"Missing values filled and updated data saved to {merged_filled_csv_file} and uploaded to {filled_output_key}")
+        print(f"Invalid dates removed, missing values filled, and updated data saved to {merged_filled_csv_file} and uploaded to {filled_output_key}")
 
         return {
             'statusCode': 200,
