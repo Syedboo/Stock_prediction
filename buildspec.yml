@@ -26,8 +26,8 @@ phases:
   build:
     commands:
       - echo Starting build...
-      - echo "Printing the source repository URL:"
-      - echo $CODEBUILD_SOURCE_REPO_URL
+      - echo "Printing the webhook source location URL:"
+      - echo $CODEBUILD_DEFAULT_WEBHOOK_SOURCE_LOCATION
       - echo "Printing all CodeBuild environment variables:"
       - env  # This will print all environment variables including the source information
       - echo Build started on `date`
