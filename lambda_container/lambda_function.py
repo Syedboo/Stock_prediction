@@ -5,10 +5,6 @@ import yfinance as yf
 from datetime import datetime, timedelta
 from transformers import pipeline, logging
 
-
-
-
-
 # Initialize S3 client
 s3_client = boto3.client('s3')
 
@@ -46,6 +42,7 @@ def lambda_handler(event, context):
 
         # Fetch the stock data
         stock_data = yf.download(stock_symbol, start=start_date, end=end_date)
+        stock_data.reset_index(inplace=True)  # Reset index to ensure 'Date' is a column
         csv_file = '/tmp/sbrl_l_stock_data.csv'
         stock_data.to_csv(csv_file)
 
@@ -89,6 +86,9 @@ def lambda_handler(event, context):
         # Part 3: Merge Stock Data with Articles Data
         articles_df = pd.DataFrame(articles)
         articles_df['actual_date'] = pd.to_datetime(articles_df['actual_date'])
+
+        # Convert 'Date' in stock_data to datetime format
+        stock_data['Date'] = pd.to_datetime(stock_data['Date'])
 
         # Merge stock data with articles data
         merged_df = pd.merge(stock_data, articles_df, left_on='Date', right_on='actual_date', how='left')
