@@ -5,6 +5,8 @@ import yfinance as yf
 from datetime import datetime, timedelta
 from transformers import pipeline, logging
 
+
+
 # Initialize S3 client
 s3_client = boto3.client('s3')
 
