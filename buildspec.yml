@@ -25,6 +25,11 @@ phases:
 
   build:
     commands:
+      - echo Starting build...
+      - echo "Printing the source repository URL:"
+      - echo $CODEBUILD_SOURCE_REPO_URL
+      - echo "Printing all CodeBuild environment variables:"
+      - env  # This will print all environment variables including the source information
       - echo Build started on `date`
       - echo Building the Docker image...
       - docker build -t lambda-container .
