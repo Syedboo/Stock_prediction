@@ -30,10 +30,6 @@ phases:
       - docker build -t lambda-container .
       - docker tag lambda-container:latest $REPOSITORY_URI:latest
 
-artifacts:
-  files:
-    - '**/*'
-  discard-paths: true
 
 
   post_build:
@@ -41,3 +37,10 @@ artifacts:
       - echo Build completed on `date`
       - echo Pushing the Docker image to ECR...
       - docker push $REPOSITORY_URI:latest
+
+
+
+artifacts:
+  files:
+    - '**/*'
+  discard-paths: true
