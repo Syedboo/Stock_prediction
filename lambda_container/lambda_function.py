@@ -180,10 +180,11 @@ def lambda_handler(event, context):
         # Adding Volatility
         merged_df['Volatility'] = merged_df['Open'].rolling(window=10).std()
 
-        # Impute missing values
         imputer = SimpleImputer(strategy='mean')
-        data_imputed = imputer.fit_transform(merged_df)
-        data_imputed = pd.DataFrame(data_imputed, columns=merged_df.columns, index=merged_df.index)
+        numeric_cols = merged_df.select_dtypes(include=['float64', 'int64']).columns
+        data_imputed = imputer.fit_transform(merged_df[numeric_cols])
+        data_imputed = pd.DataFrame(data_imputed, columns=numeric_cols, index=merged_df.index)
+        merged_df.update(data_imputed)
 
         # Save the dataset to S3
         final_csv_file = '/tmp/final_stock_price_dataset.csv'
