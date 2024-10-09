@@ -7,9 +7,7 @@ from datetime import datetime, timedelta
 from transformers import pipeline, logging
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_squared_error, mean_absolute_error
-from sklearn.model_selection import train_test_split
 from sklearn.impute import SimpleImputer
-
 
 # Initialize S3 client
 s3_client = boto3.client('s3')
@@ -20,6 +18,7 @@ logging.set_verbosity_error()
 # Initialize the sentiment analysis pipeline
 sentiment_pipeline = pipeline("sentiment-analysis", model="distilbert-base-uncased-finetuned-sst-2-english")
 
+# Function to upload a file to S3
 def upload_to_s3(local_file, bucket_name, s3_key):
     try:
         # Delete the file if it exists in S3 (ensure no duplicates)
@@ -31,7 +30,7 @@ def upload_to_s3(local_file, bucket_name, s3_key):
     except Exception as e:
         print(f"Error uploading {local_file} to {s3_key}: {str(e)}")
 
-
+# Function to delete a file from S3
 def delete_from_s3(bucket_name, s3_key):
     try:
         # Delete the object if it exists in S3
@@ -41,6 +40,7 @@ def delete_from_s3(bucket_name, s3_key):
         print(f"Error deleting {s3_key} from {bucket_name}: {str(e)}")
 
 
+# Function to forecast the next `days` using Random Forest model
 def forecast_next_days_rf(new_sentiment_score, model, initial_data, features, imputer, days=1): 
     forecasts = []
     data = initial_data.copy()
@@ -75,9 +75,7 @@ def forecast_next_days_rf(new_sentiment_score, model, initial_data, features, im
     return forecasts
 
 
-
-
-
+# Function to send forecast results to SNS
 def send_forecast_to_sns(rf_mse, topic_arn):
     try:
         # Create the message with additional text
@@ -95,6 +93,7 @@ def send_forecast_to_sns(rf_mse, topic_arn):
     except Exception as e:
         print(f"Error sending forecast to SNS: {str(e)}")
         return None
+
 
 def lambda_handler(event, context):
     try:
@@ -145,7 +144,6 @@ def lambda_handler(event, context):
         with open(processed_articles_file, 'w') as f:
             json.dump(articles, f, indent=4)
         upload_to_s3(processed_articles_file, bucket_name, output_key)
-
         # Part 3: Merge Stock Data with Articles Data
         articles_df = pd.DataFrame(articles)
         articles_df = articles_df[['actual_date', 'text', 'sentiment_score', 'insights']]  # Select only relevant columns
@@ -193,6 +191,8 @@ def lambda_handler(event, context):
         final_output_key = 'merged_data/final_stock_price_dataset.csv'
         upload_to_s3(final_csv_file, bucket_name, final_output_key)
 
+
+
         # Part 5: Train-Test Split and Model Training
         features = ['sentiment_score', 'sentiment_lag_1', 'sentiment_lag_2', 'sentiment_roll_mean_3', 'sentiment_roll_std_3',
                     'open_roll_mean_3', 'open_roll_std_3', 'MA10', 'MA50', 'Volatility']
@@ -217,10 +217,22 @@ def lambda_handler(event, context):
         rf_mse = mean_squared_error(y_test, y_pred_rf)
         rf_mae = mean_absolute_error(y_test, y_pred_rf)
         rf_rmse = np.sqrt(rf_mse)
-        topic_arn = 'arn:aws:sns:ap-south-1:975050245649:Lambda_to_email'
-        send_forecast_to_sns(rf_mse, topic_arn)
+
         print(f"Random Forest MSE: {rf_mse}, MAE: {rf_mae}, RMSE: {rf_rmse}")
 
+        # Part 6: Forecasting Future Prices
+        new_sentiment_score = 0.5  # Example sentiment score for the next day
+        forecast_days = 1  # Forecast for the next 1 day
+
+        future_prices = forecast_next_days_rf(new_sentiment_score, rf_model, test, features, imputer, days=forecast_days)
+        print(f"Forecasted price for the next {forecast_days} day: {future_prices}")
+
+
+        # Part 7: Send forecast to SNS
+        topic_arn = 'arn:aws:sns:ap-south-1:975050245649:Lambda_to_email'
+        send_forecast_to_sns(rf_rmse, topic_arn)
+
+        print(f"Forecasted stock price for next {forecast_days} day: {future_prices}")
         return {
             'statusCode': 200,
             'body': json.dumps('Stock data processed, articles analyzed, features engineered, model trained, and saved successfully!')
