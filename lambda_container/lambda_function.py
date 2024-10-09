@@ -97,6 +97,16 @@ def send_forecast_to_sns(rf_mse, topic_arn):
 
 def lambda_handler(event, context):
     try:
+        #subscribing to the topic i.e) adding user to the subscription list to send email
+        body = json.loads(event['body'])
+        stock_symbol = body.get('stockSymbol')
+        email = body.get('email')
+        response = sns_client.subscribe(
+            TopicArn='arn:aws:sns:ap-south-1:975050245649:Lambda_to_email',
+            Protocol='email',
+            Endpoint=email
+        )
+        subscription_arn = response['SubscriptionArn']
         # Part 1: Stock Data Fetching and Processing
         stock_symbol = 'SBRY.L'
         end_date = datetime.now().strftime('%Y-%m-%d')
