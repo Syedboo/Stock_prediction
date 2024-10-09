@@ -74,6 +74,7 @@ def forecast_next_days_rf(new_sentiment_score, model, initial_data, features, im
 
     return forecasts
 
+sns_client = boto3.client('sns')
 
 # Function to send forecast results to SNS
 def send_forecast_to_sns(rf_mse, topic_arn):
