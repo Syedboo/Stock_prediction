@@ -94,7 +94,6 @@ def send_forecast_to_sns(rf_mse, topic_arn):
         print(f"Error sending forecast to SNS: {str(e)}")
         return None
 
-
 def lambda_handler(event, context):
     try:
         # Part 1: Stock Data Fetching and Processing
@@ -144,6 +143,7 @@ def lambda_handler(event, context):
         with open(processed_articles_file, 'w') as f:
             json.dump(articles, f, indent=4)
         upload_to_s3(processed_articles_file, bucket_name, output_key)
+
         # Part 3: Merge Stock Data with Articles Data
         articles_df = pd.DataFrame(articles)
         articles_df = articles_df[['actual_date', 'text', 'sentiment_score', 'insights']]  # Select only relevant columns
@@ -158,14 +158,14 @@ def lambda_handler(event, context):
         # Select only the required columns
         merged_df = merged_df[['Date', 'Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume', 'sentiment_score']]
 
-        # Handle Missing Values (Forward Fill and Imputation)
-        # Forward fill missing values for sentiment_score
-        merged_df['sentiment_score'] = merged_df['sentiment_score'].fillna(method='ffill')
+        # Part 4: Handle Missing Values Before Feature Engineering
+        numeric_cols = merged_df.select_dtypes(include=[np.float64, np.int64]).columns  # Only numerical columns
 
-        # Impute remaining null values in sentiment_score with 0.5
-        merged_df['sentiment_score'] = merged_df['sentiment_score'].fillna(0.5)
+        # Impute missing values for numeric columns before adding new features
+        imputer = SimpleImputer(strategy='mean')
+        merged_df[numeric_cols] = imputer.fit_transform(merged_df[numeric_cols])
 
-        # Part 4: Feature Engineering: Adding Technical Indicators
+        # Part 5: Feature Engineering: Adding Technical Indicators
         merged_df['sentiment_lag_1'] = merged_df['sentiment_score'].shift(1)
         merged_df['sentiment_lag_2'] = merged_df['sentiment_score'].shift(2)
         merged_df['sentiment_roll_mean_3'] = merged_df['sentiment_score'].rolling(window=3).mean()
@@ -180,29 +180,25 @@ def lambda_handler(event, context):
         # Adding Volatility
         merged_df['Volatility'] = merged_df['Open'].rolling(window=10).std()
 
-        imputer = SimpleImputer(strategy='mean')
-        numeric_cols = merged_df.select_dtypes(include=['float64', 'int64']).columns
-        data_imputed = imputer.fit_transform(merged_df[numeric_cols])
-        data_imputed = pd.DataFrame(data_imputed, columns=numeric_cols, index=merged_df.index)
-        merged_df.update(data_imputed)
+        # Ensure no new missing values after feature engineering (impute again if needed)
+        new_numeric_cols = merged_df.select_dtypes(include=[np.float64, np.int64]).columns
+        merged_df[new_numeric_cols] = imputer.fit_transform(merged_df[new_numeric_cols])
 
         # Save the dataset to S3
         final_csv_file = '/tmp/final_stock_price_dataset.csv'
-        data_imputed.to_csv(final_csv_file, index=False)
+        merged_df.to_csv(final_csv_file, index=False)
         final_output_key = 'merged_data/final_stock_price_dataset.csv'
         upload_to_s3(final_csv_file, bucket_name, final_output_key)
 
-
-
-        # Part 5: Train-Test Split and Model Training
+        # Part 6: Train-Test Split and Model Training
         features = ['sentiment_score', 'sentiment_lag_1', 'sentiment_lag_2', 'sentiment_roll_mean_3', 'sentiment_roll_std_3',
                     'open_roll_mean_3', 'open_roll_std_3', 'MA10', 'MA50', 'Volatility']
         target = 'Open'
 
         # Train-test split (80% train, 20% test)
-        train_size = int(len(data_imputed) * 0.8)
-        train = data_imputed[:train_size]
-        test = data_imputed[train_size:]
+        train_size = int(len(merged_df) * 0.8)
+        train = merged_df[:train_size]
+        test = merged_df[train_size:]
 
         X_train = train[features]
         y_train = train[target]
@@ -219,21 +215,11 @@ def lambda_handler(event, context):
         rf_mae = mean_absolute_error(y_test, y_pred_rf)
         rf_rmse = np.sqrt(rf_mse)
 
+        # Send forecast result to SNS
+        topic_arn = 'arn:aws:sns:ap-south-1:975050245649:Lambda_to_email'
+        send_forecast_to_sns(rf_mse, topic_arn)
         print(f"Random Forest MSE: {rf_mse}, MAE: {rf_mae}, RMSE: {rf_rmse}")
 
-        # Part 6: Forecasting Future Prices
-        new_sentiment_score = 0.5  # Example sentiment score for the next day
-        forecast_days = 1  # Forecast for the next 1 day
-
-        future_prices = forecast_next_days_rf(new_sentiment_score, rf_model, test, features, imputer, days=forecast_days)
-        print(f"Forecasted price for the next {forecast_days} day: {future_prices}")
-
-
-        # Part 7: Send forecast to SNS
-        topic_arn = 'arn:aws:sns:ap-south-1:975050245649:Lambda_to_email'
-        send_forecast_to_sns(rf_rmse, topic_arn)
-
-        print(f"Forecasted stock price for next {forecast_days} day: {future_prices}")
         return {
             'statusCode': 200,
             'body': json.dumps('Stock data processed, articles analyzed, features engineered, model trained, and saved successfully!')
@@ -245,3 +231,4 @@ def lambda_handler(event, context):
             'statusCode': 500,
             'body': json.dumps(f"Error processing data: {str(e)}")
         }
+
