@@ -105,7 +105,7 @@ def lambda_handler(event, context):
         if not stock_symbol or not email:
             return {
                 'statusCode': 400,
-                'body': json.dumps('Missing stock symbol or email in request')
+                'body': json.dumps('Stock symbol and email are required!')
             }
 
         # Subscribe to SNS
