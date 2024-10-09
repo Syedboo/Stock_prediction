@@ -1,4 +1,6 @@
-pandas
-yfinance
 boto3
+pandas
+numpy
+yfinance
 transformers
+scikit-learn
