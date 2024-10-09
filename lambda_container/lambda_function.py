@@ -99,10 +99,10 @@ def lambda_handler(event, context):
     try:
         # Parse the request body
         body = json.loads(event.get('body', '{}'))
-        stock_symbol = body.get('stockSymbol')
+        # stock_symbol = body.get('stockSymbol')
         email = body.get('email')
 
-        if not stock_symbol or not email:
+        if not email:
             return {
                 'statusCode': 400,
                 'body': json.dumps('Stock symbol and email are required!')
@@ -123,10 +123,6 @@ def lambda_handler(event, context):
                 'body': json.dumps('Failed to subscribe email to SNS')
             }
 
-        # Fetch stock data
-        end_date = datetime.now().strftime('%Y-%m-%d')
-        start_date = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
-        stock_data = yf.download(stock_symbol, start=start_date, end=end_date)
 
         if stock_data.empty:
             return {
