@@ -1,9 +1,15 @@
 import json
 import boto3
 import pandas as pd
+import numpy as np
 import yfinance as yf
 from datetime import datetime, timedelta
 from transformers import pipeline, logging
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_squared_error, mean_absolute_error
+from sklearn.model_selection import train_test_split
+from sklearn.impute import SimpleImputer
+
 
 # Initialize S3 client
 s3_client = boto3.client('s3')
@@ -25,6 +31,7 @@ def upload_to_s3(local_file, bucket_name, s3_key):
     except Exception as e:
         print(f"Error uploading {local_file} to {s3_key}: {str(e)}")
 
+
 def delete_from_s3(bucket_name, s3_key):
     try:
         # Delete the object if it exists in S3
@@ -32,6 +39,62 @@ def delete_from_s3(bucket_name, s3_key):
         print(f"Deleted {s3_key} from {bucket_name} if it existed.")
     except Exception as e:
         print(f"Error deleting {s3_key} from {bucket_name}: {str(e)}")
+
+
+def forecast_next_days_rf(new_sentiment_score, model, initial_data, features, imputer, days=1): 
+    forecasts = []
+    data = initial_data.copy()
+
+    for _ in range(days):
+        # Prepare features for prediction
+        latest_features = data[features].values
+
+        # Ensure no NaN values
+        latest_features = imputer.transform(latest_features)
+
+        # Predict the next day's price
+        next_day_price = model.predict(latest_features)[0]
+        forecasts.append(next_day_price)
+
+        # Update the data with the new prediction
+        new_row = data.iloc[-1:].copy()
+        new_row['Open'] = next_day_price
+        new_row['sentiment_lag_1'] = new_sentiment_score
+        new_row['sentiment_lag_2'] = data['sentiment_score'].iloc[-1]
+        new_row['sentiment_roll_mean_3'] = data['sentiment_score'].iloc[-3:].mean()
+        new_row['sentiment_roll_std_3'] = data['sentiment_score'].iloc[-3:].std()
+        new_row['open_roll_mean_3'] = data['Open'].iloc[-3:].mean()
+        new_row['open_roll_std_3'] = data['Open'].iloc[-3:].std()
+        new_row['MA10'] = data['Open'].iloc[-10:].mean()
+        new_row['MA50'] = data['Open'].iloc[-50:].mean()
+        new_row['Volatility'] = data['Open'].iloc[-10:].std()
+
+        # Append new_row to data
+        data = pd.concat([data, new_row], ignore_index=True)
+
+    return forecasts
+
+
+
+
+
+def send_forecast_to_sns(rf_mse, topic_arn):
+    try:
+        # Create the message with additional text
+        message = f"The forecast is complete. The calculated Root Mean Square Error (RMSE) for the random forest model is: {rf_mse:.4f}. This is the prediction accuracy measure."
+
+        # Send message to SNS
+        response = sns_client.publish(
+            TopicArn=topic_arn,
+            Message=message,
+            Subject='Stock Price Prediction Result'
+        )
+
+        print(f"Forecast sent to SNS: {message}")
+        return response
+    except Exception as e:
+        print(f"Error sending forecast to SNS: {str(e)}")
+        return None
 
 def lambda_handler(event, context):
     try:
@@ -97,30 +160,70 @@ def lambda_handler(event, context):
         # Select only the required columns
         merged_df = merged_df[['Date', 'Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume', 'sentiment_score']]
 
-        # Save merged data to S3
-        merged_csv_file = '/tmp/merged_stock_articles_data.csv'
-        merged_df.to_csv(merged_csv_file, index=False)
-        merged_output_key = 'merged_data/merged_stock_articles_data.csv'
-        upload_to_s3(merged_csv_file, bucket_name, merged_output_key)
-
-        # Part 4: Handle Missing Values (Forward Fill and Imputation)
+        # Handle Missing Values (Forward Fill and Imputation)
         # Forward fill missing values for sentiment_score
         merged_df['sentiment_score'] = merged_df['sentiment_score'].fillna(method='ffill')
 
         # Impute remaining null values in sentiment_score with 0.5
         merged_df['sentiment_score'] = merged_df['sentiment_score'].fillna(0.5)
 
-        # Save the updated dataset with filled missing values to /tmp and upload to S3
-        merged_filled_csv_file = '/tmp/merged_stock_articles_data_filled_forward.csv'
-        merged_df.to_csv(merged_filled_csv_file, index=False)
-        filled_output_key = 'merged_data/merged_stock_articles_data_filled_forward.csv'
-        upload_to_s3(merged_filled_csv_file, bucket_name, filled_output_key)
+        # Part 4: Feature Engineering: Adding Technical Indicators
+        merged_df['sentiment_lag_1'] = merged_df['sentiment_score'].shift(1)
+        merged_df['sentiment_lag_2'] = merged_df['sentiment_score'].shift(2)
+        merged_df['sentiment_roll_mean_3'] = merged_df['sentiment_score'].rolling(window=3).mean()
+        merged_df['sentiment_roll_std_3'] = merged_df['sentiment_score'].rolling(window=3).std()
+        merged_df['open_roll_mean_3'] = merged_df['Open'].rolling(window=3).mean()
+        merged_df['open_roll_std_3'] = merged_df['Open'].rolling(window=3).std()
 
-        print(f"Missing values filled and updated data saved to {merged_filled_csv_file} and uploaded to {filled_output_key}")
+        # Adding Moving Averages
+        merged_df['MA10'] = merged_df['Open'].rolling(window=10).mean()
+        merged_df['MA50'] = merged_df['Open'].rolling(window=50).mean()
+
+        # Adding Volatility
+        merged_df['Volatility'] = merged_df['Open'].rolling(window=10).std()
+
+        # Impute missing values
+        imputer = SimpleImputer(strategy='mean')
+        data_imputed = imputer.fit_transform(merged_df)
+        data_imputed = pd.DataFrame(data_imputed, columns=merged_df.columns, index=merged_df.index)
+
+        # Save the dataset to S3
+        final_csv_file = '/tmp/final_stock_price_dataset.csv'
+        data_imputed.to_csv(final_csv_file, index=False)
+        final_output_key = 'merged_data/final_stock_price_dataset.csv'
+        upload_to_s3(final_csv_file, bucket_name, final_output_key)
+
+        # Part 5: Train-Test Split and Model Training
+        features = ['sentiment_score', 'sentiment_lag_1', 'sentiment_lag_2', 'sentiment_roll_mean_3', 'sentiment_roll_std_3',
+                    'open_roll_mean_3', 'open_roll_std_3', 'MA10', 'MA50', 'Volatility']
+        target = 'Open'
+
+        # Train-test split (80% train, 20% test)
+        train_size = int(len(data_imputed) * 0.8)
+        train = data_imputed[:train_size]
+        test = data_imputed[train_size:]
+
+        X_train = train[features]
+        y_train = train[target]
+        X_test = test[features]
+        y_test = test[target]
+
+        # Model Training with Random Forest
+        rf_model = RandomForestRegressor(n_estimators=100, random_state=42)
+        rf_model.fit(X_train, y_train)
+        y_pred_rf = rf_model.predict(X_test)
+
+        # Model Evaluation
+        rf_mse = mean_squared_error(y_test, y_pred_rf)
+        rf_mae = mean_absolute_error(y_test, y_pred_rf)
+        rf_rmse = np.sqrt(rf_mse)
+        topic_arn = 'arn:aws:sns:ap-south-1:975050245649:Lambda_to_email'
+        send_forecast_to_sns(rf_mse, topic_arn)
+        print(f"Random Forest MSE: {rf_mse}, MAE: {rf_mae}, RMSE: {rf_rmse}")
 
         return {
             'statusCode': 200,
-            'body': json.dumps('Stock data processed, articles analyzed, merged, missing values handled, and saved successfully!')
+            'body': json.dumps('Stock data processed, articles analyzed, features engineered, model trained, and saved successfully!')
         }
 
     except Exception as e:
