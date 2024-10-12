@@ -102,33 +102,14 @@ def lambda_handler(event, context):
         # stock_symbol = body.get('stockSymbol')
         email = body.get('email')
 
-        if not email:
-            return {
-                'statusCode': 400,
-                'body': json.dumps('Stock symbol and email are required!')
-            }
-
-        # Subscribe to SNS
-        response = sns_client.subscribe(
-            TopicArn='arn:aws:sns:ap-south-1:975050245649:Lambda_to_email',
-            Protocol='email',
-            Endpoint=email
-        )
-        subscription_arn = response.get('SubscriptionArn')
-
-        # Log the subscription status
-        if not subscription_arn:
-            return {
-                'statusCode': 500,
-                'body': json.dumps('Failed to subscribe email to SNS')
-            }
-
-
-        if stock_data.empty:
-            return {
-                'statusCode': 404,
-                'body': json.dumps(f'No data found for stock symbol: {stock_symbol}')
-            }
+        if email:
+            # Subscribe to SNS
+            response = sns_client.subscribe(
+                TopicArn='arn:aws:sns:ap-south-1:975050245649:Lambda_to_email',
+                Protocol='email',
+                Endpoint=email
+            )
+            subscription_arn = response.get('SubscriptionArn')
 
         
         # Part 1: Stock Data Fetching and Processing
